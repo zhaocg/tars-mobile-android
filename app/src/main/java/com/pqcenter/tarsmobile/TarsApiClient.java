@@ -61,7 +61,7 @@ final class TarsApiClient {
 
             int status = connection.getResponseCode();
             if (status < 200 || status >= 300) {
-                throw httpError(status);
+                throw httpError(connection, status);
             }
         } finally {
             connection.disconnect();
@@ -91,7 +91,7 @@ final class TarsApiClient {
 
             int status = connection.getResponseCode();
             if (status < 200 || status >= 300) {
-                throw httpError(status);
+                throw httpError(connection, status);
             }
         } finally {
             connection.disconnect();
@@ -114,7 +114,7 @@ final class TarsApiClient {
 
                     int status = connection.getResponseCode();
                     if (status < 200 || status >= 300) {
-                        throw httpError(status);
+                        throw httpError(connection, status);
                     }
 
                     callback.onOpen();
@@ -181,12 +181,68 @@ final class TarsApiClient {
         return connection;
     }
 
-    private static IOException httpError(int status) {
+    private static IOException httpError(HttpURLConnection connection, int status) {
+        String detail = relayErrorMessage(connection);
+        if (!detail.isEmpty()) {
+            return new IOException("The relay returned HTTP " + status + ": " + detail);
+        }
+
         if (status == 404) {
             return new IOException("The relay returned HTTP 404. Redeploy tars-relay with mobile relay endpoints or check the Relay URL.");
         }
 
         return new IOException("The relay returned HTTP " + status + ".");
+    }
+
+    private static String relayErrorMessage(HttpURLConnection connection) {
+        InputStream stream = connection.getErrorStream();
+        if (stream == null) {
+            return "";
+        }
+
+        try {
+            String body = readStream(stream);
+            if (body.trim().isEmpty()) {
+                return "";
+            }
+
+            try {
+                JSONObject payload = new JSONObject(body);
+                JSONObject error = payload.optJSONObject("error");
+                if (error != null) {
+                    String message = error.optString("message", "");
+                    String code = error.optString("code", "");
+
+                    if (!message.isEmpty() && !code.isEmpty()) {
+                        return code + " - " + message;
+                    }
+
+                    if (!message.isEmpty()) {
+                        return message;
+                    }
+                }
+            } catch (Exception ignored) {
+                // Fall through to the raw body.
+            }
+
+            return body.length() > 500 ? body.substring(0, 500) : body;
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static String readStream(InputStream stream) throws IOException {
+        StringBuilder builder = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (builder.length() > 0) {
+                    builder.append('\n');
+                }
+                builder.append(line);
+            }
+        }
+        return builder.toString();
     }
 
     private static String pathEscape(String value) {
