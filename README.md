@@ -21,6 +21,20 @@ The default Relay URL is:
 https://tarsrelay.pqcenter.cn
 ```
 
+For local LAN debugging, start `tars-relay/start-local-relay.bat` on the PC and
+use the printed LAN URL in Android Settings, for example:
+
+```text
+http://192.168.1.20:18992
+```
+
+On a physical Android device, do not use `127.0.0.1`; that points to the phone
+itself. Use the PC's LAN IP. On the Android emulator, use:
+
+```text
+http://10.0.2.2:18992
+```
+
 ## Relay Settings
 
 In the app Settings dialog:
@@ -34,7 +48,7 @@ In the app Settings dialog:
 Local Tars must be started with matching mobile relay settings:
 
 ```powershell
-$env:TARS_MOBILE_RELAY_BASE_URL = 'https://tarsrelay.pqcenter.cn'
+$env:TARS_MOBILE_RELAY_BASE_URL = 'http://192.168.1.20:18992'
 $env:TARS_MOBILE_RELAY_TOKEN = 'same-token-as-relay'
 $env:TARS_MOBILE_RELAY_AGENT_ID = 'default'
 npm run start
@@ -62,3 +76,10 @@ If the app reports HTTP 404, the Relay URL is wrong or the deployed
 If Android reports an SSL handshake failure, first open
 `https://tarsrelay.pqcenter.cn/health` in Chrome on the same device. If Chrome
 also fails, fix the relay HTTPS certificate chain before debugging the app.
+
+If Android cannot connect to a LAN relay, verify:
+
+- the phone and PC are on the same Wi-Fi/LAN
+- Windows Firewall allows inbound TCP `18992`
+- Relay URL uses the PC LAN IP, not `127.0.0.1`
+- WebChat was started with the same relay URL/token/agent ID
