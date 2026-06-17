@@ -264,8 +264,13 @@ public final class MainActivity extends Activity {
             public void onError(Exception exception) {
                 mainHandler.post(() -> {
                     setConnected(false);
-                    setActivity("Disconnected");
-                    setError(exception.getMessage());
+                    if (TarsApiClient.isTransientStreamDisconnect(exception)) {
+                        setActivity("Reconnecting relay");
+                        setError(null);
+                    } else {
+                        setActivity("Disconnected");
+                        setError(exception.getMessage());
+                    }
                 });
             }
         });

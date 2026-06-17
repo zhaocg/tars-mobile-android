@@ -92,3 +92,9 @@ If Android cannot connect to a LAN relay, verify:
 - Windows Firewall allows inbound TCP `18992`
 - Relay URL uses the PC LAN IP, not `127.0.0.1`
 - WebChat was started with the same relay URL/token/agent ID
+
+If Android reports `unexpected end of stream` while using a local relay, it is
+usually a transient SSE/socket close from the relay or a stale reused
+HTTP/1.1 connection. The app sends `Connection: close` for relay requests and
+will reconnect the SSE stream automatically; if it repeats continuously, restart
+the local relay and WebChat, then confirm both are using the same token.

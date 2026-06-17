@@ -171,7 +171,10 @@ final class TarsApiClient {
         HttpURLConnection connection = (HttpURLConnection) URI.create(baseUrl + path).toURL().openConnection();
         connection.setRequestMethod(method);
         connection.setConnectTimeout(15000);
+        connection.setUseCaches(false);
         connection.setRequestProperty("Accept", accept);
+        connection.setRequestProperty("Cache-Control", "no-cache");
+        connection.setRequestProperty("Connection", "close");
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
 
         if (!relayToken.isEmpty()) {
@@ -192,6 +195,16 @@ final class TarsApiClient {
         }
 
         return new IOException("The relay returned HTTP " + status + ".");
+    }
+
+    static boolean isTransientStreamDisconnect(Exception exception) {
+        String message = exception == null ? "" : nullToEmpty(exception.getMessage()).toLowerCase();
+
+        return message.contains("unexpected end of stream")
+            || message.contains("unexpected end of file")
+            || message.contains("connection reset")
+            || message.contains("socket closed")
+            || message.contains("stream was reset");
     }
 
     private static String relayErrorMessage(HttpURLConnection connection) {
