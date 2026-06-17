@@ -7,6 +7,8 @@ This app mirrors the current iOS mobile client:
 - Relay-only connection mode.
 - Streaming SSE response handling.
 - Message submission through `tars-relay`.
+- Initial history rendering starts with the latest 10 messages and loads older
+  messages in batches as you scroll upward.
 - Markdown rendering in `WebView`.
 - Controlled `chart` / `echarts` fenced blocks rendered with bundled ECharts.
 

@@ -39,7 +39,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
-    private static final int MAX_RENDERED_MESSAGES = 40;
+    private static final int INITIAL_RENDERED_MESSAGES = 10;
+    private static final int HISTORY_PAGE_SIZE = 10;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -62,6 +63,13 @@ public final class MainActivity extends Activity {
     private boolean sending;
     private boolean awaitingResponse;
     private boolean renderQueued;
+    private boolean loadingOlderMessages;
+    private boolean pendingScrollToBottom;
+    private boolean pendingPreserveScroll;
+    private boolean transcriptLoaded;
+    private int pendingPreviousContentHeight;
+    private int pendingPreviousScrollY;
+    private int renderedTranscriptCount = INITIAL_RENDERED_MESSAGES;
     private long responseWaitToken;
 
     @Override
@@ -94,6 +102,11 @@ public final class MainActivity extends Activity {
 
         messageScrollView = new ScrollView(this);
         messageScrollView.setFillViewport(true);
+        messageScrollView.setOnScrollChangeListener((view, scrollX, scrollY, oldScrollX, oldScrollY) -> {
+            if (scrollY <= dp(24) && oldScrollY > scrollY) {
+                loadOlderMessages();
+            }
+        });
         messageScrollView.setLayoutParams(new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             0,
@@ -241,6 +254,9 @@ public final class MainActivity extends Activity {
         apiClient = new TarsApiClient(settings);
         sessionText.setText(settings.sessionId);
         relayModeText.setText("  " + settings.relayModeLabel());
+        renderedTranscriptCount = INITIAL_RENDERED_MESSAGES;
+        loadingOlderMessages = false;
+        transcriptLoaded = false;
         setConnected(false);
         setActivity("Connecting");
         setError(null);
@@ -301,7 +317,11 @@ public final class MainActivity extends Activity {
         sendButton.setEnabled(false);
         setActivity("Sending message");
         transcriptMessages.add(ChatMessage.user(text));
-        requestRender();
+        renderedTranscriptCount = Math.min(
+            transcriptMessages.size(),
+            Math.max(renderedTranscriptCount + 1, INITIAL_RENDERED_MESSAGES)
+        );
+        requestRender(true);
 
         executor.execute(() -> {
             try {
@@ -415,11 +435,16 @@ public final class MainActivity extends Activity {
             return;
         }
 
+        boolean scrollToBottom = !transcriptLoaded || isNearMessageBottom();
         transcriptMessages.clear();
-        int startIndex = Math.max(0, transcript.length() - MAX_RENDERED_MESSAGES);
-        for (int index = startIndex; index < transcript.length(); index++) {
+        for (int index = 0; index < transcript.length(); index++) {
             JSONObject entry = transcript.optJSONObject(index);
             if (entry == null) {
+                continue;
+            }
+
+            String content = entry.optString("content", "");
+            if (content.trim().isEmpty()) {
                 continue;
             }
 
@@ -427,12 +452,16 @@ public final class MainActivity extends Activity {
                 entry.optString("id", "transcript:" + index),
                 entry.optString("runId", null),
                 entry.optString("role", "assistant"),
-                entry.optString("content", ""),
+                content,
                 entry.optString("status", ""),
                 parseCreatedAt(entry.optString("createdAt", "")),
                 false
             ));
         }
+        renderedTranscriptCount = Math.min(
+            transcriptMessages.size(),
+            Math.max(renderedTranscriptCount, INITIAL_RENDERED_MESSAGES)
+        );
 
         for (ChatMessage message : transcriptMessages) {
             if ("assistant".equals(message.role) && message.runId != null) {
@@ -444,7 +473,8 @@ public final class MainActivity extends Activity {
             }
         }
 
-        requestRender();
+        transcriptLoaded = true;
+        requestRender(scrollToBottom);
     }
 
     private void applyDelta(JSONObject payload) {
@@ -489,7 +519,7 @@ public final class MainActivity extends Activity {
             setActivity("Connected via Relay");
         }
 
-        requestRender();
+        requestRender(true);
     }
 
     private void completeMessage(JSONObject payload) {
@@ -516,7 +546,7 @@ public final class MainActivity extends Activity {
                 message.content = content;
             }
             message.streaming = false;
-            requestRender();
+            requestRender(true);
         }
     }
 
@@ -585,28 +615,91 @@ public final class MainActivity extends Activity {
         messageContainer.removeAllViews();
 
         List<ChatMessage> messages = new ArrayList<>();
-        messages.addAll(transcriptMessages);
+        int transcriptStart = Math.max(0, transcriptMessages.size() - renderedTranscriptCount);
+        messages.addAll(transcriptMessages.subList(transcriptStart, transcriptMessages.size()));
         messages.addAll(streamingMessagesByRunId.values());
         messages.sort(Comparator.comparingLong(message -> message.createdAtMillis));
 
-        if (messages.size() > MAX_RENDERED_MESSAGES) {
-            messages = messages.subList(messages.size() - MAX_RENDERED_MESSAGES, messages.size());
-        }
-
         for (ChatMessage message : messages) {
+            if (!message.streaming && (message.content == null || message.content.trim().isEmpty())) {
+                continue;
+            }
+
             messageContainer.addView(createMessageRow(message));
         }
 
-        messageScrollView.post(() -> messageScrollView.fullScroll(View.FOCUS_DOWN));
+        if (pendingPreserveScroll) {
+            int previousHeight = pendingPreviousContentHeight;
+            int previousScrollY = pendingPreviousScrollY;
+            messageScrollView.post(() -> {
+                int heightDelta = messageContainer.getHeight() - previousHeight;
+                messageScrollView.scrollTo(0, Math.max(0, previousScrollY + heightDelta));
+                loadingOlderMessages = false;
+            });
+        } else if (pendingScrollToBottom) {
+            messageScrollView.post(() -> {
+                messageScrollView.fullScroll(View.FOCUS_DOWN);
+                loadingOlderMessages = false;
+            });
+        } else {
+            loadingOlderMessages = false;
+        }
+
+        pendingPreserveScroll = false;
+        pendingScrollToBottom = false;
     }
 
-    private void requestRender() {
+    private void requestRender(boolean scrollToBottom) {
         if (renderQueued) {
+            pendingScrollToBottom = pendingScrollToBottom || scrollToBottom;
             return;
         }
 
+        pendingScrollToBottom = scrollToBottom;
+        pendingPreserveScroll = false;
         renderQueued = true;
         mainHandler.postDelayed(this::renderMessages, 50);
+    }
+
+    private void requestRenderPreservingScroll(int previousContentHeight, int previousScrollY) {
+        pendingPreviousContentHeight = previousContentHeight;
+        pendingPreviousScrollY = previousScrollY;
+
+        if (renderQueued) {
+            pendingPreserveScroll = true;
+            pendingScrollToBottom = false;
+            return;
+        }
+
+        pendingPreserveScroll = true;
+        pendingScrollToBottom = false;
+        renderQueued = true;
+        mainHandler.postDelayed(this::renderMessages, 50);
+    }
+
+    private void loadOlderMessages() {
+        if (loadingOlderMessages || transcriptMessages.isEmpty()) {
+            return;
+        }
+
+        if (renderedTranscriptCount >= transcriptMessages.size()) {
+            return;
+        }
+
+        loadingOlderMessages = true;
+        int previousHeight = messageContainer.getHeight();
+        int previousScrollY = messageScrollView.getScrollY();
+        renderedTranscriptCount = Math.min(
+            transcriptMessages.size(),
+            renderedTranscriptCount + HISTORY_PAGE_SIZE
+        );
+        requestRenderPreservingScroll(previousHeight, previousScrollY);
+    }
+
+    private boolean isNearMessageBottom() {
+        int contentHeight = messageContainer.getHeight();
+        int viewportBottom = messageScrollView.getScrollY() + messageScrollView.getHeight();
+        return contentHeight <= 0 || contentHeight - viewportBottom <= dp(96);
     }
 
     private View createMessageRow(ChatMessage message) {
