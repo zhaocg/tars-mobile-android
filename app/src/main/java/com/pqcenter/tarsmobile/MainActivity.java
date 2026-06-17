@@ -5,6 +5,8 @@ import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.Insets;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -12,6 +14,8 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowInsets;
 import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.EditText;
@@ -63,6 +67,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        configureSystemBars();
         settings = new AppSettings(this);
         setContentView(createContentView());
         configureClient();
@@ -82,6 +87,7 @@ public final class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.rgb(243, 245, 247));
         root.setLayoutParams(matchParent());
+        applySystemBarInsets(root);
 
         root.addView(createToolbar());
         root.addView(createConnectionStrip());
@@ -109,6 +115,36 @@ public final class MainActivity extends Activity {
 
         root.addView(createComposer());
         return root;
+    }
+
+    private void configureSystemBars() {
+        Window window = getWindow();
+        window.setStatusBarColor(Color.WHITE);
+        window.setNavigationBarColor(Color.rgb(243, 245, 247));
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        }
+    }
+
+    private void applySystemBarInsets(View root) {
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            int topInset;
+            int bottomInset;
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Insets systemBars = insets.getInsets(WindowInsets.Type.systemBars());
+                topInset = systemBars.top;
+                bottomInset = systemBars.bottom;
+            } else {
+                topInset = insets.getSystemWindowInsetTop();
+                bottomInset = insets.getSystemWindowInsetBottom();
+            }
+
+            view.setPadding(0, topInset, 0, bottomInset);
+            return insets;
+        });
+        root.requestApplyInsets();
     }
 
     private View createToolbar() {
