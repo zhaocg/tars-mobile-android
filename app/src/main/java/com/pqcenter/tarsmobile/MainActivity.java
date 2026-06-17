@@ -18,6 +18,8 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
+import android.widget.ArrayAdapter;
+import android.widget.Spinner;
 import android.widget.TextView;
 
 import org.json.JSONArray;
@@ -47,6 +49,7 @@ public final class MainActivity extends Activity {
     private ScrollView messageScrollView;
     private TextView activityText;
     private TextView sessionText;
+    private TextView relayModeText;
     private TextView errorText;
     private View connectionDot;
     private EditText composerInput;
@@ -157,12 +160,12 @@ public final class MainActivity extends Activity {
         sessionText.setSingleLine(true);
         strip.addView(sessionText);
 
-        TextView relayLabel = new TextView(this);
-        relayLabel.setText("  Relay");
-        relayLabel.setTextColor(Color.rgb(99, 112, 131));
-        relayLabel.setTypeface(Typeface.DEFAULT_BOLD);
-        relayLabel.setTextSize(13);
-        strip.addView(relayLabel);
+        relayModeText = new TextView(this);
+        relayModeText.setText("  " + settings.relayModeLabel());
+        relayModeText.setTextColor(Color.rgb(99, 112, 131));
+        relayModeText.setTypeface(Typeface.DEFAULT_BOLD);
+        relayModeText.setTextSize(13);
+        strip.addView(relayModeText);
 
         return strip;
     }
@@ -201,6 +204,7 @@ public final class MainActivity extends Activity {
         settings.save();
         apiClient = new TarsApiClient(settings);
         sessionText.setText(settings.sessionId);
+        relayModeText.setText("  " + settings.relayModeLabel());
         setConnected(false);
         setActivity("Connecting");
         setError(null);
@@ -613,6 +617,7 @@ public final class MainActivity extends Activity {
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(20), dp(8), dp(20), dp(4));
 
+        Spinner relayMode = settingsModeField(form, settings.relayMode);
         EditText relayUrl = settingsField(form, "Relay URL", settings.relayBaseUrl, false);
         EditText sessionId = settingsField(form, "Session ID", settings.sessionId, false);
         EditText relayToken = settingsField(form, "Relay Token", settings.relayToken, true);
@@ -620,11 +625,24 @@ public final class MainActivity extends Activity {
         EditText clientId = settingsField(form, "Client ID", settings.relayClientId, false);
 
         TextView note = new TextView(this);
-        note.setText("The Android app connects through Tars Relay only. Local Tars must run with matching mobile relay settings.");
+        note.setText("Local LAN mode connects directly to a relay on your PC. Use the LAN URL printed by start-local-relay.bat, not 127.0.0.1 on a physical phone.");
         note.setTextSize(13);
         note.setTextColor(Color.rgb(99, 112, 131));
         note.setPadding(0, dp(8), 0, 0);
         form.addView(note);
+
+        relayMode.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                String mode = relayModeValueAt(position);
+                relayUrl.setText(AppSettings.relayUrlForMode(mode, relayUrl.getText().toString()));
+            }
+
+            @Override
+            public void onNothingSelected(android.widget.AdapterView<?> parent) {
+                // Keep the existing URL.
+            }
+        });
 
         ScrollView scrollView = new ScrollView(this);
         scrollView.addView(form);
@@ -634,6 +652,7 @@ public final class MainActivity extends Activity {
             .setView(scrollView)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Save", (dialog, which) -> {
+                settings.relayMode = relayModeValueAt(relayMode.getSelectedItemPosition());
                 settings.relayBaseUrl = relayUrl.getText().toString();
                 settings.sessionId = sessionId.getText().toString();
                 settings.relayToken = relayToken.getText().toString();
@@ -642,6 +661,61 @@ public final class MainActivity extends Activity {
                 configureClient();
             })
             .show();
+    }
+
+    private Spinner settingsModeField(LinearLayout form, String currentMode) {
+        TextView title = new TextView(this);
+        title.setText("Relay Mode");
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextSize(13);
+        title.setPadding(0, dp(10), 0, dp(4));
+        form.addView(title);
+
+        Spinner spinner = new Spinner(this);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+            this,
+            android.R.layout.simple_spinner_item,
+            new String[] {
+                "Cloud relay",
+                "Local LAN relay",
+                "Android emulator relay",
+                "Custom relay"
+            }
+        );
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+        spinner.setSelection(relayModeIndex(AppSettings.normalizeRelayMode(currentMode)));
+        form.addView(spinner, matchParentWidthWrapContent());
+        return spinner;
+    }
+
+    private int relayModeIndex(String mode) {
+        switch (mode) {
+            case AppSettings.RELAY_MODE_LOCAL_LAN:
+                return 1;
+            case AppSettings.RELAY_MODE_EMULATOR:
+                return 2;
+            case AppSettings.RELAY_MODE_CUSTOM:
+                return 3;
+            case AppSettings.RELAY_MODE_CLOUD:
+            default:
+                return 0;
+        }
+    }
+
+    private String relayModeValueAt(int position) {
+        switch (position) {
+            case 1:
+                return AppSettings.RELAY_MODE_LOCAL_LAN;
+            case 2:
+                return AppSettings.RELAY_MODE_EMULATOR;
+            case 3:
+                return AppSettings.RELAY_MODE_CUSTOM;
+            case 0:
+            default:
+                return AppSettings.RELAY_MODE_CLOUD;
+        }
     }
 
     private EditText settingsField(LinearLayout form, String label, String value, boolean secure) {
